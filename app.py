@@ -26,7 +26,7 @@ zip_df = pd.read_csv(zip_map_file)
 # --- Normalize column names for certification ---
 def normalize_cert_column(df):
     for col in df.columns:
-        if col.strip().lower() in ["certification", "cert", "cert type", "cert_type"]:
+        if col.strip().lower() in ["certification", "cert", "cert type", "cert_type", "order cert"]:
             df.rename(columns={col: "certification"}, inplace=True)
             return df
     return None
@@ -72,7 +72,7 @@ for _, job in jobs_df.iterrows():
     for _, lead in leads_df.iterrows():
         if job["certification"] == lead["certification"]:
             distance = calculate_distance(job["JobLat"], job["JobLon"], lead["LeadLat"], lead["LeadLon"])
-            if distance <= 50:  # ✅ 50-mile radius
+            if distance <= 50:  # updated radius to 50 miles
                 matches.append({
                     "Job": job.get("Position", "Unknown"),
                     "Lead": lead.get("First Name", "Unknown") + " " + lead.get("Last Name", "Unknown"),
