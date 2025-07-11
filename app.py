@@ -1,50 +1,28 @@
-from math import radians, cos, sin, asin, sqrt
+import streamlit as st
+import pandas as pd
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 3958.8  # Earth radius in miles
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
-    return R * 2 * asin(sqrt(a))
+# Page config
+st.set_page_config(page_title="2:2 Job Match Tool", layout="wide")
+st.title("2:2 Job Match Validator")
+st.write("Upload your Jobs and Leads files below:")
 
-# Make sure ZIP is string and left-padded with zeros
-zip_df["Zip"] = zip_df["Zip"].astype(str).str.zfill(5)
-zip_map = zip_df.set_index("Zip")[["Lat", "Lon"]].to_dict("index")
+# Upload files
+jobs_file = st.file_uploader("Upload Jobs CSV", type="csv")
+leads_file = st.file_uploader("Upload Leads CSV", type="csv")
+cert_file = st.file_uploader("Upload Cert Lookup CSV", type="csv")
+zip_map_file = st.file_uploader("Upload ZIP Map CSV (with Zip, Lat, Lon)", type="csv")
 
-match_rows = []
-for _, job in jobs_clean.iterrows():
-    job_zip = str(job["Zip"]).zfill(5)
-    job_cert = job["Normalized Cert"]
-    job_latlon = zip_map.get(job_zip)
-    if not job_latlon:
-        continue
-    for _, lead in leads_clean.iterrows():
-        lead_zip = str(lead["Zip"]).zfill(5)
-        lead_cert = lead["Normalized Cert"]
-        lead_latlon = zip_map.get(lead_zip)
-        if not lead_latlon:
-            continue
-        if job_cert != lead_cert:
-            continue
-        distance = haversine(job_latlon["Lat"], job_latlon["Lon"], lead_latlon["Lat"], lead_latlon["Lon"])
-        if distance <= 30:
-            match_rows.append({
-                "Job ID": job.get("Job ID", ""),
-                "Client Name": job.get("Client Name", ""),
-                "AE": job.get("Account Executive", ""),
-                "Lead Name": f"{lead.get('First Name', '')} {lead.get('Last Name', '')}".strip(),
-                "Recruiter": lead.get("Recruiter", ""),
-                "Certification": job_cert,
-                "Job ZIP": job_zip,
-                "Lead ZIP": lead_zip,
-                "Distance (miles)": round(distance, 2)
-            })
+if jobs_file and leads_file and cert_file and zip_map_file:
+    # Load files
+    jobs_df = pd.read_csv(jobs_file)
+    leads_df = pd.read_csv(leads_file)
+    cert_lookup = pd.read_csv(cert_file)
+    zip_df = pd.read_csv(zip_map_file)
 
-matches_df = pd.DataFrame(match_rows)
-
-st.subheader("✅ Match Results")
-if not matches_df.empty:
-    st.dataframe(matches_df)
-    st.download_button("Download Matches", matches_df.to_csv(index=False), "Match_Results.csv")
-else:
-    st.warning("No valid matches found within 30-mile radius and matching certification.")
+    # Normalize cert lookup headers
+    cert_lookup.columns = [col.strip().title() for col in cert_lookup.columns]
+    if "Raw Certification" in cert_lookup.columns and "Normalized Certification" in cert_lookup.columns:
+        cert_lookup_dict = dict(
+            zip(
+                cert_lookup["Raw Certification"].str.strip().str.title(),
+                cert_lookup["Normalized Certification"].str.strip().str.title()
