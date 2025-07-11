@@ -23,39 +23,47 @@ leads_df = pd.read_csv(leads_file)
 cert_lookup_df = pd.read_csv(cert_lookup_file)
 zip_df = pd.read_csv(zip_map_file)
 
-# --- Normalize column names ---
-def normalize_column(df, target_col, aliases):
+# --- Normalize column names for certification ---
+def normalize_cert_column(df):
     for col in df.columns:
-        if col.strip().lower() in [a.lower() for a in aliases]:
-            df.rename(columns={col: target_col}, inplace=True)
-            return True
-    return False
+        if col.strip().lower() in ["certification", "cert", "cert type", "cert_type", "order cert"]:
+            df.rename(columns={col: "certification"}, inplace=True)
+            return df
+    return None
 
-# Normalize certification columns
-cert_cols = ["certification", "cert", "cert type", "cert_type", "order cert"]
-if not normalize_column(jobs_df, "certification", cert_cols) or not normalize_column(leads_df, "certification", cert_cols):
-    st.error("❌ Both Jobs and Leads files must include a 'certification' column (or variation like 'Cert', 'Cert Type', 'Order Cert').")
+if normalize_cert_column(jobs_df) is None or normalize_cert_column(leads_df) is None:
+    st.error("❌ Both Jobs and Leads files must include a 'certification' column (or variation like 'Cert', 'Cert Type').")
     st.stop()
 
-# Normalize ZIP column
-for df in [jobs_df, leads_df, zip_df]:
+# --- Normalize ZIP columns ---
+def normalize_zip_column(df):
     zip_col = next((col for col in df.columns if col.strip().lower() == "zip"), None)
     if zip_col:
-        df["Zip"] = df[zip_col].astype(str).str.zfill(5)
+        df["Zip"] = df[zip_col].astype(str).str.extract(r'(\d{5})')[0].str.zfill(5)
+        return df
     else:
-        st.error("❌ All files must include a 'Zip' column.")
-        st.stop()
+        return None
 
-# Normalize Cert Lookup column names
+if normalize_zip_column(jobs_df) is None or normalize_zip_column(leads_df) is None or normalize_zip_column(zip_df) is None:
+    st.error("❌ All files must include a 'Zip' column.")
+    st.stop()
+
+# --- Normalize Cert Lookup ---
 cert_lookup_df.columns = [col.strip().lower() for col in cert_lookup_df.columns]
-if not all(c in cert_lookup_df.columns for c in ["alias", "normalized"]):
+if "alias" not in cert_lookup_df.columns or "normalized" not in cert_lookup_df.columns:
     st.error("❌ Cert Lookup file must contain 'alias' and 'normalized' columns.")
     st.stop()
+
 cert_lookup_dict = dict(zip(cert_lookup_df["alias"].str.title(), cert_lookup_df["normalized"].str.title()))
-jobs_df["certification"] = jobs_df["certification"].str.title().replace(cert_lookup_dict)
-leads_df["certification"] = leads_df["certification"].str.title().replace(cert_lookup_dict)
+jobs_df["certification"] = jobs_df["certification"].astype(str).str.title().replace(cert_lookup_dict)
+leads_df["certification"] = leads_df["certification"].astype(str).str.title().replace(cert_lookup_dict)
 
 # --- Map ZIPs to Coordinates ---
+zip_df = zip_df.rename(columns={col: col.strip().title() for col in zip_df.columns})
+if not all(x in zip_df.columns for x in ["Zip", "Lat", "Lon"]):
+    st.error("❌ ZIP Map file must include 'Zip', 'Lat', and 'Lon' columns.")
+    st.stop()
+
 zip_coords = zip_df.set_index("Zip")[['Lat', 'Lon']].to_dict("index")
 
 def get_coords(zip_code):
@@ -77,7 +85,7 @@ for _, job in jobs_df.iterrows():
     for _, lead in leads_df.iterrows():
         if job["certification"] == lead["certification"]:
             distance = calculate_distance(job["JobLat"], job["JobLon"], lead["LeadLat"], lead["LeadLon"])
-            if distance <= 50:  # Updated to 50 miles
+            if distance <= 50:
                 matches.append({
                     "Job": job.get("Position", "Unknown"),
                     "Lead": lead.get("First Name", "Unknown") + " " + lead.get("Last Name", "Unknown"),
