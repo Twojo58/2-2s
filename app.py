@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from geopy.distance import geodesic
 
 st.set_page_config(page_title="2:2 Job Match Validator", layout="wide")
 st.title("2:2 Job Match Validator")
@@ -41,6 +42,7 @@ if 'Zip' not in zip_df.columns or 'Lat' not in zip_df.columns or 'Lon' not in zi
     st.stop()
 
 zip_df['Zip'] = zip_df['Zip'].astype(str).str.zfill(5)
+zip_lookup = zip_df.set_index('Zip')[['Lat', 'Lon']].to_dict('index')
 
 # ------------------------------
 # Load and Normalize Jobs
@@ -68,17 +70,60 @@ leads_df['Zip'] = leads_df['Zip'].astype(str).str.zfill(5)
 leads_df['Certification'] = leads_df['Certification'].astype(str).str.strip().str.title()
 leads_df['Normalized Cert'] = leads_df['Certification'].map(cert_lookup_dict).fillna(leads_df['Certification'])
 
-# Drop leads with no phone and no email
 if 'Cell Phone' in leads_df.columns and 'Email' in leads_df.columns:
     leads_df = leads_df[leads_df['Cell Phone'].notna() | leads_df['Email'].notna()]
 
 # ------------------------------
-# Behavior Cert Exclusion
+# Exclude Behavior Roles
 # ------------------------------
 behavior_roles = ["Para", "Paraprofessional", "Ta", "Teacher Assistant", "Rbt", "Bcba"]
 leads_df = leads_df[~leads_df['Normalized Cert'].isin(behavior_roles)]
 
 # ------------------------------
-# Confirmation Message
+# Match Logic (Zip Radius + Cert)
 # ------------------------------
-st.success("✅ All files validated and normalized. Ready for matching logic.")
+match_radius = 30
+matches = []
+
+for _, job in jobs_df.iterrows():
+    job_cert = job['Normalized Cert']
+    job_zip = job['Zip']
+    
+    if job_zip not in zip_lookup:
+        continue
+
+    job_coords = (zip_lookup[job_zip]['Lat'], zip_lookup[job_zip]['Lon'])
+
+    for _, lead in leads_df.iterrows():
+        if lead['Normalized Cert'] != job_cert:
+            continue
+
+        lead_zip = lead['Zip']
+        if lead_zip not in zip_lookup:
+            continue
+
+        lead_coords = (zip_lookup[lead_zip]['Lat'], zip_lookup[lead_zip]['Lon'])
+        distance = geodesic(job_coords, lead_coords).miles
+
+        if distance <= match_radius:
+            matches.append({
+                'Job Order ID': job.get('Order Id'),
+                'Lead Name': f"{lead.get('First Name', '')} {lead.get('Last Name', '')}".strip(),
+                'Job Cert': job_cert,
+                'Lead Cert': lead['Normalized Cert'],
+                'Job ZIP': job_zip,
+                'Lead ZIP': lead_zip,
+                'Distance': round(distance, 1)
+            })
+
+match_df = pd.DataFrame(matches)
+
+# ------------------------------
+# Display Output
+# ------------------------------
+if not match_df.empty:
+    st.success("🎯 Match results ready!")
+    st.dataframe(match_df)
+else:
+    st.info("ℹ️ No matches found with current filters.")
+    
