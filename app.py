@@ -72,7 +72,7 @@ for _, job in jobs_df.iterrows():
     for _, lead in leads_df.iterrows():
         if job["certification"] == lead["certification"]:
             distance = calculate_distance(job["JobLat"], job["JobLon"], lead["LeadLat"], lead["LeadLon"])
-            if distance <= 50:  # updated radius to 50 miles
+            if distance <= 50:  # ✅ 50-mile radius
                 matches.append({
                     "Job": job.get("Position", "Unknown"),
                     "Lead": lead.get("First Name", "Unknown") + " " + lead.get("Last Name", "Unknown"),
