@@ -1,82 +1,77 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+from io import StringIO
 
-# Page setup
-st.set_page_config(page_title="2:2 Job Match Tool", layout="wide")
+st.set_page_config(page_title="2:2 Job Match Validator", layout="wide")
 st.title("2:2 Job Match Validator")
-st.write("Upload your Jobs and Leads files below:")
 
-# Uploads
+st.markdown("Upload your Jobs and Leads files below:")
+
 jobs_file = st.file_uploader("Upload Jobs CSV", type="csv")
 leads_file = st.file_uploader("Upload Leads CSV", type="csv")
-cert_file = st.file_uploader("Upload Cert Lookup CSV", type="csv")
+cert_lookup_file = st.file_uploader("Upload Cert Lookup CSV", type="csv")
 zip_map_file = st.file_uploader("Upload ZIP Map CSV (with Zip, Lat, Lon)", type="csv")
 
-if jobs_file and leads_file and cert_file and zip_map_file:
-    # Read all files
+if jobs_file and leads_file and cert_lookup_file and zip_map_file:
+    # Load and normalize data
     jobs_df = pd.read_csv(jobs_file)
     leads_df = pd.read_csv(leads_file)
-    cert_lookup = pd.read_csv(cert_file)
+    cert_lookup = pd.read_csv(cert_lookup_file)
     zip_df = pd.read_csv(zip_map_file)
 
-    # Cert Lookup column safety
-    cert_lookup.columns = [col.strip().title() for col in cert_lookup.columns]
-    if "Raw Certification" in cert_lookup.columns and "Normalized Certification" in cert_lookup.columns:
-        cert_lookup_dict = dict(zip(
-            cert_lookup["Raw Certification"].str.strip().str.title(),
-            cert_lookup["Normalized Certification"].str.strip().str.title()
-        ))
-    else:
-        st.error("❌ Cert Lookup CSV must include 'Raw Certification' and 'Normalized Certification' columns.")
-        st.stop()
+    # Normalize column names
+    def normalize_columns(df):
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '').str.replace('_', '')
+        return df
 
-    # ZIP map check
-    zip_df.columns = [col.strip().lower() for col in zip_df.columns]
-    if "zip" in zip_df.columns:
-        zip_df["Zip"] = zip_df["zip"].astype(str).str.zfill(5)
-    else:
-        st.error("❌ ZIP map must include a 'zip' column.")
-        st.stop()
+    jobs_df = normalize_columns(jobs_df)
+    leads_df = normalize_columns(leads_df)
+    cert_lookup = normalize_columns(cert_lookup)
+    zip_df = normalize_columns(zip_df)
 
-    # Cert normalization for leads
-    if "Certification" in leads_df.columns:
-        leads_df["Certification"] = leads_df["Certification"].astype(str).str.strip().str.title()
-        leads_df["Normalized Cert"] = leads_df["Certification"].map(cert_lookup_dict).fillna(leads_df["Certification"])
-    else:
-        st.error("❌ Leads file must include 'Certification' column.")
-        st.stop()
+    # Validate required columns exist
+    required_job_cols = ["zip", "ordercert"]
+    required_lead_cols = ["zip", "certification", "cellphone", "email"]
+    required_cert_cols = ["rawcertification", "normalizedcertification"]
+    required_zip_cols = ["zip", "lat", "lon"]
 
-    # Cert normalization for jobs
-    if "Order Cert" in jobs_df.columns:
-        jobs_df["Order Cert"] = jobs_df["Order Cert"].astype(str).str.strip().str.title()
-        jobs_df["Normalized Cert"] = jobs_df["Order Cert"].map(cert_lookup_dict).fillna(jobs_df["Order Cert"])
-    else:
-        st.error("❌ Jobs file must include 'Order Cert' column.")
-        st.stop()
-
-    # Zip cleanup in jobs and leads
-    for df, label in [(leads_df, "Leads"), (jobs_df, "Jobs")]:
-        if "Zip" in df.columns:
-            df["Zip"] = df["Zip"].astype(str).str.zfill(5)
-        else:
-            st.error(f"❌ {label} file must include 'Zip' column.")
+    for col in required_job_cols:
+        if col not in jobs_df.columns:
+            st.error(f"Jobs file must include '{col}' column.")
             st.stop()
 
-    # Leads must have at least one contact method
-    if "Email" in leads_df.columns and "Cell Phone" in leads_df.columns:
-        leads_df = leads_df[leads_df["Email"].notna() | leads_df["Cell Phone"].notna()]
-    else:
-        st.error("❌ Leads file must include both 'Email' and 'Cell Phone' columns.")
-        st.stop()
+    for col in required_lead_cols:
+        if col not in leads_df.columns:
+            st.error(f"Leads file must include '{col}' column.")
+            st.stop()
 
-    # Preview tables
-    st.success("✅ All files loaded successfully.")
-    st.write("Jobs Preview:", jobs_df.head())
-    st.write("Leads Preview:", leads_df.head())
-    st.write("Cert Lookup Preview:", cert_lookup.head())
-    st.write("ZIP Map Preview:", zip_df.head())
+    for col in required_cert_cols:
+        if col not in cert_lookup.columns:
+            st.error(f"Cert Lookup must include '{col}' column.")
+            st.stop()
 
-    st.info("🚧 Next: Add match logic for cert + zip radius matching...")
+    for col in required_zip_cols:
+        if col not in zip_df.columns:
+            st.error(f"ZIP Map must include '{col}' column.")
+            st.stop()
+
+    # Pad zip codes with zeros to ensure 5-digit format
+    jobs_df["zip"] = jobs_df["zip"].astype(str).str.zfill(5)
+    leads_df["zip"] = leads_df["zip"].astype(str).str.zfill(5)
+    zip_df["zip"] = zip_df["zip"].astype(str).str.zfill(5)
+
+    # Map certifications
+    cert_lookup_dict = dict(zip(cert_lookup["rawcertification"].str.strip().str.title(), cert_lookup["normalizedcertification"].str.strip().str.title()))
+
+    jobs_df["normalized_cert"] = jobs_df["ordercert"].str.strip().str.title().map(cert_lookup_dict)
+    leads_df["normalized_cert"] = leads_df["certification"].str.strip().str.title().map(cert_lookup_dict)
+
+    # Drop leads missing both phone and email
+    leads_df = leads_df[leads_df["email"].notna() | leads_df["cellphone"].notna()]
+
+    # TODO: Match logic goes here
+    st.success("All files validated and normalized. Ready for matching logic.")
 
 else:
-    st.warning("📥 Please upload all four required files to proceed.")
+    st.warning("\U0001F4E6 Please upload all four required files to proceed.")
